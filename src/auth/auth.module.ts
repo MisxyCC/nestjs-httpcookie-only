@@ -1,11 +1,12 @@
+// import { UsersModule } from '../users/users.module'; // อย่าลืม Import module user ของคุณ
+
 import { Module } from '@nestjs/common';
-import { AuthService } from './auth.service';
-import { AuthController } from './auth.controller';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
-import { ConfigModule, ConfigService } from '@nestjs/config';
+import { AuthController } from './auth.controller';
+import { AuthService } from './auth.service';
 import { JwtStrategy } from './jwt.strategy';
-// import { UsersModule } from '../users/users.module'; // อย่าลืม Import module user ของคุณ
 
 @Module({
   imports: [
@@ -17,8 +18,8 @@ import { JwtStrategy } from './jwt.strategy';
       useFactory: async (configService: ConfigService) => ({
         secret: configService.get<string>('JWT_SECRET'),
         signOptions: {
-          // อ่านค่าเวลาหมดอายุจาก env หรือ default 1 วัน
-          expiresIn: configService.get<string>('JWT_EXPIRATION') ?? '1d',
+          expiresIn:
+            Number(configService.get<string>('JWT_EXPIRATION_TIME')) || '1d',
         },
       }),
       inject: [ConfigService],
