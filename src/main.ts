@@ -24,28 +24,30 @@ async function bootstrap() {
   });
 
   // 2. Register CSRF
-  (await app.register(fastifyCsrfProtection),
-    {
-      cookieOpts: {
-        signed: true,
-        httpOnly: true,
-        sameSite: 'lax',
-      },
-    });
+  await app.register(fastifyCsrfProtection, {
+    cookieOpts: {
+      signed: true,
+      httpOnly: true,
+      sameSite: 'lax',
+    },
+  });
 
   // 3. Setup Hook (Global Protection)
   // ดึง instance ของ fastify ออกมาเพื่อ addHook
 
-  fastify.addHook('onRequest', async (req: FastifyRequest) => {
-    // ข้ามการตรวจ GET, HEAD, OPTIONS
-    if (
-      req.method !== 'GET' &&
-      req.method !== 'HEAD' &&
-      req.method !== 'OPTIONS'
-    ) {
-      fastify.csrfProtection;
-    }
-  });
+  fastify.addHook(
+    'onRequest',
+    async (req: FastifyRequest, res: FastifyReply) => {
+      // ข้ามการตรวจ GET, HEAD, OPTIONS
+      if (
+        req.method !== 'GET' &&
+        req.method !== 'HEAD' &&
+        req.method !== 'OPTIONS'
+      ) {
+        fastify.csrfProtection(req, res, () => {});
+      }
+    },
+  );
 
   app.useGlobalPipes(
     new ValidationPipe({
