@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Get,
   HttpCode,
   HttpStatus,
   Post,
@@ -12,6 +13,11 @@ import { AuthService } from './auth.service';
 @Controller('auth')
 export class AuthController {
   constructor(private authService: AuthService) {}
+
+  @Get('csrf')
+  getCrsfToken(@Res({ passthrough: true }) res: FastifyReply) {
+    return { crsfToken: res.generateCsrf() };
+  }
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
