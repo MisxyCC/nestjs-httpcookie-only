@@ -28,7 +28,7 @@ async function bootstrap() {
     cookieOpts: {
       signed: true,
       httpOnly: true,
-      sameSite: 'lax',
+      sameSite: 'lax' as const,
     },
   });
 

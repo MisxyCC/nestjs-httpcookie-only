@@ -57,4 +57,25 @@ export class AuthService {
       throw error;
     }
   }
+  async refreshAccessToken(refreshToken: string) {
+    const url: string = `${this.configService.get('KEYCLOAK_URL')}/realms/${this.configService.get('KEYCLOAK_REALM')}/protocol/openid-connect/token`;
+
+    const payload = {
+      grant_type: 'refresh_token',
+      client_id: this.configService.get('KEYCLOAK_CLIENT_ID'),
+      client_secret: this.configService.get('KEYCLOAK_CLIENT_SECRET'),
+      refresh_token: refreshToken,
+    };
+    try {
+      const { data } = await firstValueFrom(
+        this.httpService.post(url, qs.stringify(payload), {
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        }),
+      );
+      return data;
+    } catch (error) {
+      // ถ้า Refresh ไม่ผ่าน (เช่น Token หมดอายุจริงๆ หรือถูกยกเลิก) ให้โยน Error
+      throw new UnauthorizedException('Session expired, please login again');
+    }
+  }
 }

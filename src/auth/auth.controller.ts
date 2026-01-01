@@ -8,6 +8,7 @@ import {
   Query,
   Req,
   Res,
+  UnauthorizedException,
   UseGuards,
 } from '@nestjs/common';
 import { LoginDto } from './dto/login.dto';
@@ -138,5 +139,63 @@ export class AuthController {
   @Get('profile')
   getProfile(@Req() req: any) {
     return req.user; // ส่งข้อมูล User กลับไปให้ Vue
+  }
+
+  @Get('Refresh')
+  async refresh(@Req() req: FastifyRequest, @Res() res: FastifyReply) {
+    // 1. ดึง Refresh Token จาก Cookie
+    const refreshToken = req.cookies['refresh_token'];
+    if (!refreshToken) {
+      throw new UnauthorizedException('No refresh token found');
+    }
+
+    // 2. เรียก Service ไปแลก Token ใหม่
+    try {
+      const tokens = await this.authService.refreshAccessToken(refreshToken);
+      // 3. ตั้งค่า Cookie Options
+      const cookieOptions = {
+        httpOnly: true,
+        secure: this.configService.get('NODE_ENV') === 'production',
+        sameSite: 'lax' as const,
+        path: '/',
+      };
+      // 4. Update Cookie: Access Token ใหม่
+      res.setCookie('access_token', tokens.access_token, {
+        httpOnly: true,
+        secure: this.configService.get('NODE_ENV') === 'production',
+        sameSite: 'lax',
+        path: '/',
+        maxAge: tokens.expires_in || 3600,
+      });
+
+      // 5. Update Cookie: Refresh Token ใหม่ (Token Rotation)
+      if (tokens.refresh_token) {
+        res.setCookie('refresh_token', tokens.refresh_token, {
+          httpOnly: true,
+          secure: this.configService.get('NODE_ENV') === 'production',
+          sameSite: 'lax',
+          path: '/',
+          maxAge: tokens.refresh_expires_in || 3600,
+        });
+      }
+
+      // Update ID Token ด้วยถ้ามี
+      if (tokens.id_token) {
+        res.setCookie('id_token', tokens.id_token, {
+          httpOnly: true,
+          secure: this.configService.get('NODE_ENV') === 'production',
+          sameSite: 'lax',
+          path: '/',
+          maxAge: tokens.expires_in || 3600,
+        });
+      }
+      res.send({ success: true });
+    } catch (error) {
+      // ถ้า Refresh ไม่ผ่าน (เช่น Token ขาด) ให้สั่งลบ Cookie เพื่อบังคับ Login ใหม่
+      res.clearCookie('access_token');
+      res.clearCookie('refresh_token');
+      res.clearCookie('id_token');
+      throw new UnauthorizedException('Session expired');
+    }
   }
 }
