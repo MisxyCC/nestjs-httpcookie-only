@@ -26,7 +26,7 @@ export class AuthController {
 
   @Get('csrf')
   getCrsfToken(@Res({ passthrough: true }) res: FastifyReply) {
-    return { crsfToken: res.generateCsrf() };
+    return { csrfToken: res.generateCsrf() };
   }
 
   @Get('login')
@@ -97,7 +97,7 @@ export class AuthController {
     );
   }
 
-  @Get('logout')
+  @Post('logout')
   logout(@Res() res: FastifyReply, @Req() req: any) {
     const params: URLSearchParams = new URLSearchParams();
     params.append(
@@ -132,7 +132,7 @@ export class AuthController {
     res.clearCookie('refresh_token', cookieOptions);
     res.clearCookie('id_token', cookieOptions); // ลบ id_token ด้วยถ้ามี
 
-    res.redirect(logoutUrl, HttpStatus.FOUND);
+    res.send({ logoutUrl });
   }
 
   @UseGuards(AuthGuard('jwt')) // ใช้ Guard ที่เราทำไว้เช็ค Token
@@ -141,7 +141,7 @@ export class AuthController {
     return req.user; // ส่งข้อมูล User กลับไปให้ Vue
   }
 
-  @Get('Refresh')
+  @Post('refresh')
   async refresh(@Req() req: FastifyRequest, @Res() res: FastifyReply) {
     // 1. ดึง Refresh Token จาก Cookie
     const refreshToken = req.cookies['refresh_token'];
