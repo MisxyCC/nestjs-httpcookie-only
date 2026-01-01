@@ -5,54 +5,138 @@ import {
   HttpCode,
   HttpStatus,
   Post,
+  Query,
+  Req,
   Res,
+  UseGuards,
 } from '@nestjs/common';
 import { LoginDto } from './dto/login.dto';
-import type { FastifyReply } from 'fastify';
+import type { FastifyReply, FastifyRequest } from 'fastify';
 import { AuthService } from './auth.service';
+import { ConfigService } from '@nestjs/config';
+import { AuthGuard } from '@nestjs/passport';
+
 @Controller('auth')
 export class AuthController {
-  constructor(private authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly configService: ConfigService,
+  ) {}
 
   @Get('csrf')
   getCrsfToken(@Res({ passthrough: true }) res: FastifyReply) {
     return { crsfToken: res.generateCsrf() };
   }
 
-  @Post('login')
-  @HttpCode(HttpStatus.OK)
-  async login(
-    @Body() loginDto: LoginDto,
-    @Res({ passthrough: true }) response: FastifyReply,
-  ) {
-    // 1. เรียก Service เพื่อตรวจสอบ user และสร้าง token
-    const { accessToken } = await this.authService.login(loginDto);
+  @Get('login')
+  login(@Res() res: FastifyReply) {
+    const params: URLSearchParams = new URLSearchParams();
+    params.append('client_id', this.configService.get('KEYCLOAK_CLIENT_ID')!);
+    params.append('response_type', 'code');
+    params.append(
+      'redirect_uri',
+      `${this.configService.get('APP_URL')}/auth/callback`,
+    );
+    params.append('scope', 'openid profile email');
 
-    // 2. คำนวณ maxAge เป็น "วินาที" (Fastify Cookie ใช้หน่วยวินาที)
-    // 1 วัน = 24 ชม * 60 นาที * 60 วินาที = 86400
-    const oneDayInSeconds: number = 24 * 60 * 60;
-
-    // 3. Set Cookie
-    response.setCookie('access_token', accessToken, {
-      httpOnly: true, //ป้องกัน XSS: JS อ่านไม่ได้
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax', // ป้องกัน CSRF
-      path: '/', // ให้ Cookie นี้ใช้ได้กับทุก route
-      maxAge: oneDayInSeconds, // อายุ Cookie
-      // signed: true // ถ้าเปิดตรงนี้ ใน Strategy ต้องใช้ unsignCookie (แนะนำปิดไว้ก่อนเพื่อความง่าย)
-    });
-
-    return {
-      message: 'Login successfully',
-      user: { username: loginDto.username },
-    };
+    const keycloakAuthUrl = `${this.configService.get('KEYCLOAK_URL')}/realms/${this.configService.get('KEYCLOAK_REALM')}/protocol/openid-connect/auth?${params.toString()}`;
+    // Redirect 302 ไป Keycloak
+    res.redirect(keycloakAuthUrl, HttpStatus.FOUND);
   }
 
-  @Post('logout')
-  @HttpCode(HttpStatus.OK)
-  async logout(@Res({ passthrough: true }) response: FastifyReply) {
-    // ล้าง Cookie (ต้องระบุ path ให้ตรงกับตอนสร้าง
-    response.clearCookie('access_token', { path: '/' });
-    return { message: 'Logout successful' };
+  // 2. Keycloak ส่ง Code กลับมาที่นี่
+  @Get('callback')
+  async callback(@Query('code') code: string, @Res() res: FastifyReply) {
+    if (!code) {
+      return res.redirect(
+        `${this.configService.get('FRONTEND_URL')}/login?error=no_code`,
+        HttpStatus.FOUND,
+      );
+    }
+
+    // แลก Token
+    const tokens = await this.authService.getTokensFromKeycloak(code);
+    // ฝัง Access Token ลง Cookie
+    // หมายเหตุ: tokens.expires_in หน่วยเป็นวินาที แต่ maxAge ใน cookie options ของบาง version อาจต้องการ millisecond ให้เช็ค version fastify-cookie
+    // ในที่นี้สมมติว่าเป็น millisecond ตามมาตรฐานทั่วไป (expires_in * 1000)
+
+    res.setCookie('access_token', tokens.access_token, {
+      httpOnly: true, // สำคัญที่สุด: JS อ่านไม่ได้
+      secure: this.configService.get('NODE_ENV') === 'production', // ใช้ HTTPS ใน Prod
+      sameSite: 'lax',
+      path: '/',
+      maxAge: tokens.expires_in,
+    });
+
+    // (Optional) เก็บ Refresh Token ถ้าต้องการ
+    if (tokens.refresh_token) {
+      res.setCookie('refresh_token', tokens.refresh_token, {
+        httpOnly: true,
+        secure: this.configService.get('NODE_ENV') === 'production',
+        sameSite: 'lax',
+        path: '/',
+        maxAge: tokens.refresh_expires_in || 3600,
+      });
+    }
+
+    // [Optional] เก็บ ID Token ไว้ใช้ตอน Logout เพื่อข้ามหน้ายืนยัน (ถ้าต้องการ)
+    if (tokens.id_token) {
+      res.setCookie('id_token', tokens.id_token, {
+        httpOnly: true,
+        secure: this.configService.get('NODE_ENV') === 'production',
+        sameSite: 'lax',
+        path: '/',
+        maxAge: tokens.refresh_expires_in || 3600,
+      });
+    }
+    // Redirect กลับไปหน้า Frontend
+    res.redirect(
+      this.configService.get('FRONTEND_URL') || '/',
+      HttpStatus.FOUND,
+    );
+  }
+
+  @Get('logout')
+  logout(@Res() res: FastifyReply, @Req() req: any) {
+    const params: URLSearchParams = new URLSearchParams();
+    params.append(
+      'client_id',
+      this.configService.get('KEYCLOAK_CLIENT_ID') || '',
+    );
+    params.append(
+      'post_logout_redirect_uri',
+      this.configService.get('FRONTEND_URL') || '',
+    );
+
+    // [Tip] ถ้าอยากให้ Logout ทันทีโดยไม่ถามยืนยัน (Skip Confirmation)
+    // ต้องส่ง id_token_hint ไปด้วย (ต้องเก็บ id_token ลง cookie ตอน callback ก่อน)
+    if (req.cookies && req.cookies['id_token']) {
+      params.append('id_token_hint', req.cookies['id_token']);
+    }
+
+    // Logout ที่ Keycloak ด้วย
+    //const logoutUrl = `${this.configService.get('KEYCLOAK_URL')}/realms/${this.configService.get('KEYCLOAK_REALM')}/protocol/openid-connect/logout?redirect_uri=${this.configService.get('FRONTEND_URL')}`;
+    const logoutUrl = `${this.configService.get('KEYCLOAK_URL')}/realms/${this.configService.get('KEYCLOAK_REALM')}/protocol/openid-connect/logout?${params.toString()}`;
+
+    // 2. ลบ Cookie ฝั่งเราให้หมด (Clear Local Session)
+    // สำคัญ: Options ต้องตรงกับตอน setCookie เป๊ะๆ (path, domain) ไม่งั้นลบไม่ออก
+    const cookieOptions = {
+      path: '/',
+      httpOnly: true,
+      secure: this.configService.get('NODE_ENV') === 'production',
+      sameSite: 'lax' as const,
+    };
+
+    res.clearCookie('access_token', cookieOptions);
+    res.clearCookie('refresh_token', cookieOptions);
+    res.clearCookie('id_token', cookieOptions); // ลบ id_token ด้วยถ้ามี
+
+    res.redirect(logoutUrl, HttpStatus.FOUND);
+  }
+
+  @UseGuards(AuthGuard('jwt')) // ใช้ Guard ที่เราทำไว้เช็ค Token
+  @Get('profile')
+  getProfile(@Req() req: any) {
+    return req.user; // ส่งข้อมูล User กลับไปให้ Vue
   }
 }

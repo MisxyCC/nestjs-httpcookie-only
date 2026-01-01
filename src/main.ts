@@ -58,7 +58,7 @@ async function bootstrap() {
   );
 
   app.enableCors({
-    origin: 'http://127.0.0.1:3000', // URL ของ Frontend
+    origin: 'http://localhost:5173', // URL ของ Frontend
     credentials: true, // อนุญาตให้รับ-ส่ง Cookie
   });
 

@@ -7,23 +7,13 @@ import { PassportModule } from '@nestjs/passport';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtStrategy } from './jwt.strategy';
+import { HttpModule } from '@nestjs/axios';
 
 @Module({
   imports: [
-    // UsersModule, // Uncomment เมื่อมี UserModule จริง
-    PassportModule,
+    PassportModule.register({ defaultStrategy: 'jwt' }),
     ConfigModule, // จำเป็นสำหรับการอ่าน .env
-    JwtModule.registerAsync({
-      imports: [ConfigModule],
-      useFactory: async (configService: ConfigService) => ({
-        secret: configService.get<string>('JWT_SECRET'),
-        signOptions: {
-          expiresIn:
-            Number(configService.get<string>('JWT_EXPIRATION_TIME')) || '1d',
-        },
-      }),
-      inject: [ConfigService],
-    }),
+    HttpModule,
   ],
   controllers: [AuthController],
   providers: [AuthService, JwtStrategy],
