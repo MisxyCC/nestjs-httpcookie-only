@@ -4,6 +4,13 @@ import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { FastifyRequest } from 'fastify';
 
+export interface JwtPayload {
+  sub: number; //UserId ที่เรา map มาตอน sign
+  username: string; //username
+  iat: number; // (Optional) Issued At: เวลาที่สร้าง Token (JWT เติมให้อัตโนมัติ)
+  exp?: number; // (Optional) Expiration Time: เวลาหมดอายุ (JWT เติมให้อัตโนมัติ)
+}
+
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(private configService: ConfigService) {
@@ -25,7 +32,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     return null;
   }
 
-  async validate(payload: any) {
+  async validate(payload: JwtPayload) {
     // payload คือข้อมูลที่แกะได้จาก Token (เช่น userId, username)
     // ตรงนี้สามารถเพิ่ม Logic เช็คกับ Database ได้ว่า User ยัง Active อยู่ไหม
     if (!payload) {
