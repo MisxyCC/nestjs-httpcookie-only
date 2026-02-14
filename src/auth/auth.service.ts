@@ -1,14 +1,13 @@
+import { HttpService } from '@nestjs/axios';
 import {
   Injectable,
   InternalServerErrorException,
   Logger,
   UnauthorizedException,
 } from '@nestjs/common';
-import { LoginDto } from './dto/login.dto';
-import { HttpService } from '@nestjs/axios';
 import { ConfigService } from '@nestjs/config';
-import { firstValueFrom } from 'rxjs';
 import * as qs from 'qs';
+import { firstValueFrom } from 'rxjs';
 
 @Injectable()
 export class AuthService {
@@ -16,7 +15,7 @@ export class AuthService {
   constructor(
     private readonly httpService: HttpService,
     private readonly configService: ConfigService,
-  ) {}
+  ) { }
 
   async getTokensFromKeycloak(code: string) {
     // 1. Get variable values
@@ -76,6 +75,22 @@ export class AuthService {
     } catch (error) {
       // ถ้า Refresh ไม่ผ่าน (เช่น Token หมดอายุจริงๆ หรือถูกยกเลิก) ให้โยน Error
       throw new UnauthorizedException('Session expired, please login again');
+    }
+  }
+
+  async getUserInfo(accessToken: string) {
+    const url = `${this.configService.get('KEYCLOAK_URL')}/realms/${this.configService.get('KEYCLOAK_REALM')}/protocol/openid-connect/userinfo`;
+
+    try {
+      const { data } = await firstValueFrom(
+        this.httpService.get(url, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        }),
+      );
+      return data;
+    } catch (error) {
+      this.logger.error(`Error getting user info: ${error.message}`);
+      throw new UnauthorizedException('Unable to fetch user info');
     }
   }
 }

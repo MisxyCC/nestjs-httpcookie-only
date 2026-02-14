@@ -11,11 +11,11 @@ import {
   UnauthorizedException,
   UseGuards,
 } from '@nestjs/common';
-import { LoginDto } from './dto/login.dto';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { AuthService } from './auth.service';
 import { ConfigService } from '@nestjs/config';
 import { AuthGuard } from '@nestjs/passport';
+import { RequestWithUser } from './models';
 
 @Controller('auth')
 export class AuthController {
@@ -135,12 +135,6 @@ export class AuthController {
     res.send({ logoutUrl });
   }
 
-  @UseGuards(AuthGuard('jwt')) // ใช้ Guard ที่เราทำไว้เช็ค Token
-  @Get('profile')
-  getProfile(@Req() req: any) {
-    return req.user; // ส่งข้อมูล User กลับไปให้ Vue
-  }
-
   @Post('refresh')
   async refresh(@Req() req: FastifyRequest, @Res() res: FastifyReply) {
     // 1. ดึง Refresh Token จาก Cookie
@@ -197,5 +191,17 @@ export class AuthController {
       res.clearCookie('id_token');
       throw new UnauthorizedException('Session expired');
     }
+  }
+
+  @UseGuards(AuthGuard('jwt'))
+  @Get('profile')
+  async getProfile(@Req() req: FastifyRequest & RequestWithUser) {
+    // ดึง Access Token จาก Cookie เพื่อนำไปเรียก UserInfo Endpoint ของ Keycloak
+    const accessToken = req.cookies['access_token'];
+    if (!accessToken) {
+      throw new UnauthorizedException('Access token not found');
+    }
+    // เรียก Service เพื่อดึงข้อมูลล่าสุดจาก Keycloak โดยตรง
+    return this.authService.getUserInfo(accessToken);
   }
 }
